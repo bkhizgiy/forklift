@@ -3,7 +3,7 @@ package ovirt
 import (
 	"fmt"
 	api "github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"path"
 	"strings"
 
@@ -414,13 +414,6 @@ func (r *Builder) mapDisks(vm *model.Workload, persistentVolumeClaims []core.Per
 	var kVolumes []cnv.Volume
 	var kDisks []cnv.Disk
 
-	// TODO may need to drop this part
-	pvcMap := make(map[string]*core.PersistentVolumeClaim)
-	for i := range persistentVolumeClaims {
-		pvc := &persistentVolumeClaims[i]
-		pvcMap[r.ResolvePersistentVolumeClaimIdentifier(pvc)] = pvc
-	}
-
 	for _, da := range vm.DiskAttachments {
 		volumeName := da.Disk.ID
 		volume := cnv.Volume{
@@ -527,30 +520,26 @@ func (r *Builder) ResolvePersistentVolumeClaimIdentifier(pvc *core.PersistentVol
 
 // Build a PersistentVolumeClaim with SourceRef for VolumePopulator
 func (r *Builder) PersistentVolumeClaimWithSourceRef(da model.XDiskAttachment, storageName *string, populatorName string,
-	accessModes []core.PersistentVolumeAccessMode, volumeMode *core.PersistentVolumeMode) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"kind":       "PersistentVolumeClaim",
-			"apiVersion": "v1",
-			"metadata": map[string]interface{}{
-				"name":      da.DiskAttachment.ID,
-				"namespace": r.Plan.Spec.TargetNamespace,
+	accessModes []core.PersistentVolumeAccessMode, volumeMode *core.PersistentVolumeMode) *core.PersistentVolumeClaim {
+	return &core.PersistentVolumeClaim{
+		ObjectMeta: meta.ObjectMeta{
+			Name:      da.DiskAttachment.ID,
+			Namespace: r.Plan.Spec.TargetNamespace,
+		},
+		Spec: core.PersistentVolumeClaimSpec{
+			AccessModes: accessModes,
+			Resources: core.ResourceRequirements{
+				Requests: map[core.ResourceName]resource.Quantity{
+					core.ResourceStorage: *resource.NewQuantity(int64(float64(da.Disk.ProvisionedSize)*1.1), resource.BinarySI)},
 			},
-			"spec": map[string]interface{}{
-				"storageClassName": storageName,
-				"resources": map[string]interface{}{
-					"requests": map[string]interface{}{
-						"storage": resource.NewQuantity(int64(float64(da.Disk.ProvisionedSize)*1.1), resource.BinarySI).String(),
-					},
-				},
-				"accessModes": accessModes,
-				"volumeMode":  volumeMode,
-				"dataSourceRef": map[string]interface{}{
-					"apiGroup": api.SchemeGroupVersion.Group,
-					"kind":     "OvirtImageIOPopulator",
-					"name":     populatorName,
-				},
+			StorageClassName: storageName,
+			VolumeMode:       volumeMode,
+			DataSourceRef: &core.TypedLocalObjectReference{
+				APIGroup: &api.SchemeGroupVersion.Group,
+				Kind:     "OvirtVolumePopulator",
+				Name:     populatorName,
 			},
 		},
+		Status: core.PersistentVolumeClaimStatus{},
 	}
 }

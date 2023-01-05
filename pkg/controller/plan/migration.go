@@ -1174,7 +1174,7 @@ func (r *Migration) updateCopyProgressForOvirt(vm *plan.VMStatus, step *plan.Ste
 			continue
 		}
 
-		populatorCr := v1beta1.OvirtImageIOPopulator{}
+		populatorCr := v1beta1.OvirtVolumePopulator{}
 		err = r.Client.Get(context.TODO(), client.ObjectKey{Namespace: r.Plan.Spec.TargetNamespace, Name: claim}, &populatorCr)
 		if err != nil {
 			return
