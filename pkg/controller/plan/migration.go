@@ -564,15 +564,17 @@ func (r *Migration) execute(vm *plan.VMStatus) (err error) {
 			vm.Phase = Completed
 		}
 	case CreateDataVolumes:
-		if r.kubevirt.isOvirtProvider(vm) {
-			err = r.kubevirt.createVolumes(vm.Ref)
-			vm.Phase = r.next(vm.Phase)
-			return
-		}
 		step, found := vm.FindStep(r.step(vm))
 		if !found {
 			vm.AddError(fmt.Sprintf("Step '%s' not found", r.step(vm)))
 			break
+		}
+		if r.kubevirt.isOvirtProvider(vm) {
+			err = r.kubevirt.createVolumes(vm.Ref)
+			step.MarkCompleted()
+			step.Phase = Completed
+			vm.Phase = r.next(vm.Phase)
+			return
 		}
 		var dataVolumes []cdi.DataVolume
 		dataVolumes, err = r.kubevirt.DataVolumes(vm)
