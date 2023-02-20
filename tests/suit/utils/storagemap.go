@@ -26,7 +26,7 @@ func CreateStorageMapFromDefinition(cl crclient.Client, def *forkliftv1.StorageM
 	return err
 }
 
-func NewStorageMap(namespace string, providerIdentifier forkliftv1.Provider, storageMapName string, storageIDs []string) *forkliftv1.StorageMap {
+func NewStorageMap(namespace string, providerIdentifier forkliftv1.Provider, storageMapName string, storageIDs []string, storageClass string) *forkliftv1.StorageMap {
 
 	sdPairs := []forkliftv1.StoragePair{}
 
@@ -34,7 +34,7 @@ func NewStorageMap(namespace string, providerIdentifier forkliftv1.Provider, sto
 		pair := forkliftv1.StoragePair{
 			Source: ref.Ref{ID: sd},
 			Destination: forkliftv1.DestinationStorage{
-				StorageClass: "standard",
+				StorageClass: storageClass,
 			},
 		}
 		sdPairs = append(sdPairs, pair)
