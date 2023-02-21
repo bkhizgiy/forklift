@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/konveyor/forklift-controller/pkg/forklift-api/webhooks/util"
@@ -32,7 +33,13 @@ func (mutator *OvirtCertMutator) Mutate(ar *admissionv1.AdmissionReview) *admiss
 		util.ToAdmissionResponseError(err)
 	}
 
-	if providerType, ok := secret.GetLabels()["createdForProviderType"]; ok && providerType == "ovirt" {
+	insecure, err := strconv.ParseBool(string(secret.Data["insecureSkipVerify"]))
+	if err != nil {
+		log.Error(err, "mutating webhook URL parsing error")
+		return util.ToAdmissionResponseError(err)
+	}
+
+	if providerType, ok := secret.GetLabels()["createdForProviderType"]; ok && providerType == "ovirt" && !insecure {
 
 		url, err := url.Parse(string(secret.Data["url"]))
 		if err != nil {
@@ -89,11 +96,11 @@ func (mutator *OvirtCertMutator) Mutate(ar *admissionv1.AdmissionReview) *admiss
 		}
 	}
 
-	// Response for other providers type
+	// Response for other providers type or insecure mode
 	return &admissionv1.AdmissionResponse{
 		Allowed: true,
 		Result: &metav1.Status{
-			Message: "Provider type diffretn from oVirt, no changes required",
+			Message: "Certificate retrieval is not required, passing ",
 			Code:    http.StatusOK,
 		},
 	}

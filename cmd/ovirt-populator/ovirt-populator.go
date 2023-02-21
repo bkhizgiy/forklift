@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,6 +24,7 @@ type engineConfig struct {
 	username string
 	password string
 	ca       string
+	insecure bool
 }
 
 type TransferProgress struct {
@@ -57,6 +59,7 @@ func main() {
 
 func populate(crName, engineURL, secretName, diskID, volPath, namespace, crNamespace string) {
 	engineConfig := loadEngineConfig(secretName, engineURL, namespace)
+	var args []string
 
 	// Write credentials to files
 	ovirtPass, err := os.Create("/tmp/ovirt.pass")
@@ -70,28 +73,44 @@ func populate(crName, engineURL, secretName, diskID, volPath, namespace, crNames
 		klog.Fatalf("Failed to write password to file: %v", err)
 	}
 
-	cert, err := os.Create("/tmp/ca.pem")
-	if err != nil {
-		klog.Fatalf("Failed to create ca.pem %v", err)
+	//for secure connection use the ca cert
+	if !engineConfig.insecure {
+		cert, err := os.Create("/tmp/ca.pem")
+		if err != nil {
+			klog.Fatalf("Failed to create ca.pem %v", err)
+		}
+
+		defer cert.Close()
+		_, err = cert.Write([]byte(engineConfig.ca))
+		if err != nil {
+			klog.Fatalf("Failed to write CA to file: %v", err)
+		}
+
+		args = []string{
+			"download-disk",
+			"--output", "json",
+			"--engine-url=" + engineConfig.URL,
+			"--username=" + engineConfig.username,
+			"--password-file=/tmp/ovirt.pass",
+			"--cafile=" + "/tmp/ca.pem",
+			"-f", "raw",
+			diskID,
+			volPath,
+		}
+	} else {
+		args = []string{
+			"download-disk",
+			"--output", "json",
+			"--engine-url=" + engineConfig.URL,
+			"--username=" + engineConfig.username,
+			"--password-file=/tmp/ovirt.pass",
+			"--insecure",
+			"-f", "raw",
+			diskID,
+			volPath,
+		}
 	}
 
-	defer cert.Close()
-	_, err = cert.Write([]byte(engineConfig.ca))
-	if err != nil {
-		klog.Fatalf("Failed to write CA to file: %v", err)
-	}
-
-	args := []string{
-		"download-disk",
-		"--output", "json",
-		"--engine-url=" + engineConfig.URL,
-		"--username=" + engineConfig.username,
-		"--password-file=/tmp/ovirt.pass",
-		"--cafile=" + "/tmp/ca.pem",
-		"-f", "raw",
-		diskID,
-		volPath,
-	}
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		klog.Fatal(err.Error())
@@ -168,10 +187,16 @@ func loadEngineConfig(secretName, engineURL, namespace string) engineConfig {
 		klog.Fatal(err.Error())
 	}
 
+	insecure, err := strconv.ParseBool(string(secret.Data["insecureSkipVerify"]))
+	if err != nil {
+		klog.Fatal(err.Error())
+	}
+
 	return engineConfig{
 		URL:      engineURL,
 		username: string(secret.Data["user"]),
 		password: string(secret.Data["password"]),
 		ca:       string(secret.Data["cacert"]),
+		insecure: insecure,
 	}
 }
