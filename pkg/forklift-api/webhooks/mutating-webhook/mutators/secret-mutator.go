@@ -24,10 +24,12 @@ var log = logging.WithName("mutator")
 
 const NewLine = 0x0a
 
-type OvirtCertMutator struct {
+var secretChanged = false
+
+type SecretMutator struct {
 }
 
-func (mutator *OvirtCertMutator) Mutate(ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
+func (mutator *SecretMutator) Mutate(ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	log.Info("secret mutator was called")
 	raw := ar.Request.Object.Raw
 	secret := &core.Secret{}
@@ -38,14 +40,17 @@ func (mutator *OvirtCertMutator) Mutate(ar *admissionv1.AdmissionReview) *admiss
 	}
 
 	var insecure = false
-	if insecureSkipVerify, ok := secret.Data["insecureSkipVerify"]; ok {
-		insecure, err = strconv.ParseBool(string(insecureSkipVerify))
-		if err != nil {
-			log.Error(err, "Failed to parse insecure property from the secret")
-			return util.ToAdmissionResponseError(err)
+	if _, ok := secret.GetLabels()["createdForProviderType"]; ok {
+		if insecureSkipVerify, ok := secret.Data["insecureSkipVerify"]; ok {
+			insecure, err = strconv.ParseBool(string(insecureSkipVerify))
+			if err != nil {
+				log.Error(err, "Failed to parse insecure property from the secret")
+				return util.ToAdmissionResponseError(err)
+			}
+		} else {
+			secret.Data["insecureSkipVerify"] = []byte("false")
+			secretChanged = true
 		}
-	} else {
-		secret.Data["insecureSkipVerify"] = []byte("false")
 	}
 
 	if providerType, ok := secret.GetLabels()["createdForProviderType"]; ok && providerType == "ovirt" && !insecure {
@@ -86,9 +91,13 @@ func (mutator *OvirtCertMutator) Mutate(ar *admissionv1.AdmissionReview) *admiss
 		if !contains(secret.Data["cacert"], cert) {
 			secret.Data["cacert"] = appendCerts(secret.Data["cacert"], cert)
 			secret.Labels["ca-cert-updated"] = "true"
+			secretChanged = true
 			log.Info("Engine CA certificate was missing, updating the secret")
 		}
+	}
 
+	//In case some of the data in the secret was changed patch the new secret
+	if secretChanged {
 		patchBytes, err := util.GeneratePatchPayload(
 			util.PatchOperation{
 				Op:    "replace",
