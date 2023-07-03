@@ -40,6 +40,8 @@ import (
 	libref "github.com/konveyor/forklift-controller/pkg/lib/ref"
 	"github.com/konveyor/forklift-controller/pkg/settings"
 	appsv1 "k8s.io/api/apps/v1"
+	core "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,10 +67,11 @@ var log = logging.WithName(Name)
 var Settings = &settings.Settings
 
 const (
-	ovaServerPrefix     = "ova-server"
-	ovaImageVar         = "OVA_PROVIDER_SERVER_IMAGE"
-	nfsVolumeNamePrefix = "nfs-volume"
-	mountPath           = "/ova"
+	ovaServerPrefix       = "ova-server"
+	ovaImageVar           = "OVA_PROVIDER_SERVER_IMAGE"
+	nfsVolumeNamePrefix   = "nfs-volume"
+	mountPath             = "/ova"
+	defaultOVAServerImage = "quay.io/kubev2v/forklift-ova-provider-server:latest"
 )
 
 // Creates a new Inventory Controller and adds it to the Manager.
@@ -119,7 +122,7 @@ func Add(mgr manager.Manager) error {
 	// References.
 	err = cnt.Watch(
 		&source.Kind{
-			Type: &v1.Secret{},
+			Type: &core.Secret{},
 		},
 		libref.Handler(&api.Provider{}))
 	if err != nil {
@@ -348,8 +351,8 @@ func (r *Reconciler) getDB(provider *api.Provider) (db libmodel.DB) {
 }
 
 // Get the secret referenced by the provider.
-func (r *Reconciler) getSecret(provider *api.Provider) (*v1.Secret, error) {
-	secret := &v1.Secret{}
+func (r *Reconciler) getSecret(provider *api.Provider) (*core.Secret, error) {
+	secret := &corev1.Secret{}
 	if provider.IsHost() {
 		return secret, nil
 	}
@@ -397,21 +400,20 @@ func (r *Reconciler) createOVAServerDeployment(provider *api.Provider, ctx conte
 					"app": "forklift",
 				},
 			},
-			Template: v1.PodTemplateSpec{
+			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"providerName": provider.Name,
 						"app":          "forklift",
 					},
 				},
-				Spec: r.makeOvaProviderPodSpec(url, string(provider.Name)),
+				Spec: makeOvaProviderPodSpec(url, string(provider.Name)),
 			},
 		},
 	}
 
 	err := r.Create(ctx, deployment)
 	if err != nil {
-		r.Log.Error(err, "Failed to create OVA server deployment")
 		return
 	}
 
@@ -443,41 +445,41 @@ func (r *Reconciler) createOVAServerDeployment(provider *api.Provider, ctx conte
 
 	err = r.Create(ctx, service)
 	if err != nil {
-		r.Log.Error(err, "Failed to create OVA server service")
 		return
 	}
 }
 
-func (r *Reconciler) makeOvaProviderPodSpec(url string, providerName string) v1.PodSpec {
+func makeOvaProviderPodSpec(url string, providerName string) corev1.PodSpec {
 	splitted := strings.Split(url, ":")
 	nonRoot := false
 
 	if len(splitted) != 2 {
-		r.Log.Error(nil, "NFS server path doesn't contains :")
+		fmt.Println("The string does not contain a ':'")
 	}
 	nfsServer := splitted[0]
 	nfsPath := splitted[1]
 
 	imageName, ok := os.LookupEnv(ovaImageVar)
 	if !ok {
-		r.Log.Error(nil, "Failed to find OVA server image")
+		fmt.Print("Couldn't find Image ", imageName)
+		imageName = defaultOVAServerImage
 	}
 
 	nfsVolumeName := fmt.Sprintf("%s-%s", nfsVolumeNamePrefix, providerName)
 
 	ovaContainerName := fmt.Sprintf("%s-pod-%s", ovaServerPrefix, providerName)
 
-	return v1.PodSpec{
+	return corev1.PodSpec{
 
-		Containers: []v1.Container{
+		Containers: []corev1.Container{
 			{
 				Name:  ovaContainerName,
-				Ports: []v1.ContainerPort{{ContainerPort: 8080, Protocol: v1.ProtocolTCP}},
-				SecurityContext: &v1.SecurityContext{
+				Ports: []corev1.ContainerPort{{ContainerPort: 8080, Protocol: v1.ProtocolTCP}},
+				SecurityContext: &corev1.SecurityContext{
 					RunAsNonRoot: &nonRoot,
 				},
 				Image: imageName,
-				VolumeMounts: []v1.VolumeMount{
+				VolumeMounts: []corev1.VolumeMount{
 					{
 						Name:      nfsVolumeName,
 						MountPath: "/ova",
@@ -486,11 +488,11 @@ func (r *Reconciler) makeOvaProviderPodSpec(url string, providerName string) v1.
 			},
 		},
 		ServiceAccountName: "forklift-controller",
-		Volumes: []v1.Volume{
+		Volumes: []corev1.Volume{
 			{
 				Name: nfsVolumeName,
-				VolumeSource: v1.VolumeSource{
-					NFS: &v1.NFSVolumeSource{
+				VolumeSource: corev1.VolumeSource{
+					NFS: &corev1.NFSVolumeSource{
 						Server:   nfsServer,
 						Path:     nfsPath,
 						ReadOnly: false,

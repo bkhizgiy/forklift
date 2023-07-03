@@ -304,25 +304,25 @@ func (r *Collector) endWatch() {
 // DB transaction while using the provider API which
 // can block or be slow.
 func (r *Collector) refresh(ctx *Context) (err error) {
-	var updates []Updater
-	mark := time.Now()
-	for _, adapter := range adapterList {
-		if ctx.canceled() {
-			return
-		}
-		updates, err = adapter.GetUpdates(ctx)
-		if err != nil {
-			return
-		}
-		err = r.apply(updates)
-		if err != nil {
-			return
-		}
-	}
-	r.log.Info(
-		"Refresh finished.",
-		"duration",
-		time.Since(mark))
+	// var updates []Updater
+	// mark := time.Now()
+	// for _, adapter := range adapterList {
+	// 	if ctx.canceled() {
+	// 		return
+	// 	}
+	// 	updates, err = adapter.GetUpdates(ctx)
+	// 	if err != nil {
+	// 		return
+	// 	}
+	// 	err = r.apply(updates)
+	// 	if err != nil {
+	// 		return
+	// 	}
+	// }
+	// r.log.Info(
+	// 	"Refresh finished.",
+	// 	"duration",
+	// 	time.Since(mark))
 	return
 }
 

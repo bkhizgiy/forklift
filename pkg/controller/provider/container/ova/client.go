@@ -48,12 +48,12 @@ func (r *Client) Connect(provider *api.Provider) (err error) {
 		},
 	}
 
-	serverURL := fmt.Sprintf("http://ova-service-%s:8080", provider.Name)
-	if serverURL == "" {
+	serviceURL := fmt.Sprintf("http://ova-service-%s:8080", provider.Name)
+	if serviceURL == "" {
 		return
 	}
 
-	url := serverURL + "/test_connection"
+	url := serviceURL + "/test_connection"
 	res := ""
 	status, err := client.Get(url, &res)
 	if err != nil {
@@ -65,7 +65,7 @@ func (r *Client) Connect(provider *api.Provider) (err error) {
 	}
 
 	r.client = client
-	r.serviceURL = serverURL
+	r.serviceURL = serviceURL
 	return
 }
 

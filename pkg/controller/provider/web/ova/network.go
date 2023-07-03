@@ -197,6 +197,7 @@ func (r *Network) Link(p *api.Provider) {
 
 // As content.
 func (r *Network) Content(detail int) interface{} {
+
 	if detail == 0 {
 		return r.Resource
 	}

@@ -135,7 +135,7 @@ func (r *VMAdapter) List(ctx *Context) (itr fb.Iterator, err error) {
 	list := fb.NewList()
 	for _, object := range vmList {
 		m := &model.VM{
-			Base: model.Base{ID: object.UUID},
+			Base: model.Base{Name: object.Name},
 		}
 		object.ApplyTo(m)
 		list.Append(m)
@@ -156,14 +156,14 @@ func (r *VMAdapter) GetUpdates(ctx *Context) (updates []Updater, err error) {
 		vm := &vmList[i]
 		updater := func(tx *libmodel.Tx) (err error) {
 			m := &model.VM{
-				Base: model.Base{ID: vm.UUID},
+				Base: model.Base{Name: vm.Name},
 			}
 			if err = tx.Get(m); err != nil {
 				if errors.Is(err, libmodel.NotFound) {
 					vm.ApplyTo(m)
 					err = tx.Insert(m)
 				}
-			} else if vm.OvaPath != m.OvaPath {
+			} else if !(vm.OvaPath == m.OvaPath) {
 				vm.ApplyTo(m)
 				err = tx.Update(m)
 			}
