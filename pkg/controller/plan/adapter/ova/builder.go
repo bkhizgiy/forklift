@@ -2,6 +2,12 @@ package ova
 
 import (
 	"fmt"
+	"math"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
+
 	"github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1/plan"
 	"github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1/ref"
 	planbase "github.com/konveyor/forklift-controller/pkg/controller/plan/adapter/base"
@@ -16,9 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cnv "kubevirt.io/api/core/v1"
 	cdi "kubevirt.io/containerized-data-importer-api/pkg/apis/core/v1beta1"
-	"math"
-	"path"
-	"regexp"
 )
 
 // BIOS types
@@ -136,7 +139,7 @@ func (r *Builder) PodEnvironment(vmRef ref.Ref, sourceSecret *core.Secret) (env 
 		// TODO support many disks
 		core.EnvVar{
 			Name:  "V2V_diskPath",
-			Value: "/mnt/nfs/ova/centos44_new.ova",
+			Value: "/ova/centos_ova/centos44_new.ova",
 		},
 		core.EnvVar{
 			Name:  "V2V_provider",
@@ -209,7 +212,7 @@ func (r *Builder) DataVolumes(vmRef ref.Ref, secret *core.Secret, _ *core.Config
 				if dv.ObjectMeta.Annotations == nil {
 					dv.ObjectMeta.Annotations = make(map[string]string)
 				}
-				dv.ObjectMeta.Annotations[planbase.AnnDiskSource] = trimBackingFileName(disk.FilePath)
+				dv.ObjectMeta.Annotations[planbase.AnnDiskSource] = getDiskSourcePath(disk.FilePath, disk.Name)
 				dvs = append(dvs, *dv)
 			}
 		}
@@ -359,6 +362,9 @@ func (r *Builder) mapMemory(vm *model.VM, object *cnv.VirtualMachineSpec) {
 }
 
 func (r *Builder) mapCPU(vm *model.VM, object *cnv.VirtualMachineSpec) {
+	if vm.CoresPerSocket == 0 {
+		vm.CoresPerSocket = 1
+	}
 	object.Template.Spec.Domain.Machine = &cnv.Machine{Type: "q35"}
 	object.Template.Spec.Domain.CPU = &cnv.CPU{
 		Sockets: uint32(vm.CpuCount / vm.CoresPerSocket),
@@ -410,7 +416,7 @@ func (r *Builder) mapDisks(vm *model.VM, persistentVolumeClaims []core.Persisten
 		}
 	}
 	for i, disk := range disks {
-		pvc := pvcMap[trimBackingFileName(disk.DiskId)]
+		pvc := pvcMap[getDiskSourcePath(disk.FilePath, disk.Name)]
 		volumeName := fmt.Sprintf("vol-%v", i)
 		volume := cnv.Volume{
 			Name: volumeName,
@@ -454,7 +460,7 @@ func (r *Builder) Tasks(vmRef ref.Ref) (list []*plan.Task, err error) {
 		list = append(
 			list,
 			&plan.Task{
-				Name: trimBackingFileName(disk.DiskId),
+				Name: getDiskSourcePath(disk.FilePath, disk.Name),
 				Progress: libitr.Progress{
 					Total: mB,
 				},
@@ -508,10 +514,31 @@ func trimBackingFileName(fileName string) string {
 	return backingFilePattern.ReplaceAllString(fileName, ".vmdk")
 }
 
+func getDiskSourcePath(filePath string, diskName string) string {
+
+	if strings.HasSuffix(filePath, ".ova") {
+		return filePath
+	}
+
+	return filepath.Dir(filePath) + "/" + diskName
+}
+
 func (r *Builder) PersistentVolumeClaimWithSourceRef(da interface{}, storageName *string, populatorName string, accessModes []core.PersistentVolumeAccessMode, volumeMode *core.PersistentVolumeMode) *core.PersistentVolumeClaim {
 	return nil
 }
 
 func (r *Builder) PreTransferActions(c planbase.Client, vmRef ref.Ref) (ready bool, err error) {
 	return true, nil
+}
+
+// Build LUN PVs.
+func (r *Builder) LunPersistentVolumes(vmRef ref.Ref) (pvs []core.PersistentVolume, err error) {
+	// do nothing
+	return
+}
+
+// Build LUN PVCs.
+func (r *Builder) LunPersistentVolumeClaims(vmRef ref.Ref) (pvcs []core.PersistentVolumeClaim, err error) {
+	// do nothing
+	return
 }
