@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	api "github.com/konveyor/forklift-controller/pkg/apis/forklift/v1beta1"
 	"github.com/konveyor/forklift-controller/pkg/controller/base"
@@ -43,7 +44,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/storage/names"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -210,8 +213,39 @@ func (r Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (r
 		// If the deployment does not exist
 		if k8serr.IsNotFound(err) {
 			r.createOVAServerDeployment(provider, ctx)
-		} else if err != nil {
-			return
+
+			ovaPod := &v1.PodList{}
+			podLabels := map[string]string{"providerName": provider.Name, "app": "forklift"}
+
+			provider.Status.Phase = Staging
+			err = r.Status().Update(context.TODO(), provider)
+			if err != nil {
+				r.Log.Error(err, "Failed to update OVA provider status")
+				return
+			}
+
+			err = wait.PollImmediate(5*time.Second, 15*time.Minute, func() (bool, error) {
+				err = r.List(
+					context.TODO(),
+					ovaPod,
+					&client.ListOptions{
+						LabelSelector: labels.SelectorFromSet(podLabels),
+						Namespace:     provider.Namespace,
+					},
+				)
+				if err != nil {
+					return false, err
+				}
+
+				if ovaPod != nil && len(ovaPod.Items) != 0 {
+					for _, pod := range ovaPod.Items {
+						if pod.Status.Phase == v1.PodRunning {
+							return true, nil
+						}
+					}
+				}
+				return false, nil
+			})
 		}
 	}
 
@@ -370,7 +404,7 @@ func (r *Reconciler) createOVAServerDeployment(provider *api.Provider, ctx conte
 
 	deploymentName := fmt.Sprintf("%s-deployment-%s", ovaServerPrefix, provider.Name)
 	annotations := make(map[string]string)
-	labels := map[string]string{"providerName": provider.Name, "app": "forklift"}
+	podLabels := map[string]string{"providerName": provider.Name, "app": "forklift"}
 	url := provider.Spec.URL
 	var replicas int32 = 1
 
@@ -387,7 +421,7 @@ func (r *Reconciler) createOVAServerDeployment(provider *api.Provider, ctx conte
 			Name:            deploymentName,
 			Namespace:       provider.Namespace,
 			Annotations:     annotations,
-			Labels:          labels,
+			Labels:          podLabels,
 			OwnerReferences: []metav1.OwnerReference{ownerReference},
 		},
 		Spec: appsv1.DeploymentSpec{
@@ -421,7 +455,7 @@ func (r *Reconciler) createOVAServerDeployment(provider *api.Provider, ctx conte
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            serviceName,
 			Namespace:       provider.Namespace,
-			Labels:          labels,
+			Labels:          podLabels,
 			OwnerReferences: []metav1.OwnerReference{ownerReference},
 		},
 		Spec: v1.ServiceSpec{
@@ -446,6 +480,53 @@ func (r *Reconciler) createOVAServerDeployment(provider *api.Provider, ctx conte
 		r.Log.Error(err, "Failed to create OVA server service")
 		return
 	}
+
+	// // Wait until the OVA server pod is running
+	// provider.Status.Phase = Staging
+	// err = r.Status().Update(context.TODO(), provider)
+	// if err != nil {
+	// 	r.Log.Error(err, "Failed to update OVA provider status")
+	// 	return
+	// }
+
+	// podctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+	// defer cancel()
+
+	// var running = false
+
+	// for !running {
+	// 	ovaPod := &v1.PodList{}
+
+	// 	err = r.List(
+	// 		context.TODO(),
+	// 		ovaPod,
+	// 		&client.ListOptions{
+	// 			LabelSelector: labels.SelectorFromSet(podLabels),
+	// 			Namespace:     provider.Namespace,
+	// 		},
+	// 	)
+	// 	if err != nil {
+	// 		continue
+	// 	}
+
+	// 	if ovaPod != nil && len(ovaPod.Items) != 0 {
+	// 		for _, pod := range ovaPod.Items {
+	// 			fmt.Printf("this is pod %s")
+	// 			if pod.Status.Phase == v1.PodRunning {
+	// 				running = true
+	// 				break
+	// 			}
+	// 		}
+	// 	}
+
+	// 	r.Log.Info("Pod is not yet ready, waiting for 5 seconds")
+	// 	time.Sleep(5 * time.Second)
+
+	// 	if podctx.Err() != nil {
+	// 		r.Log.Error(podctx.Err(), "Timeout reached, OVA server pod was not ready in time")
+	// 		return
+	// 	}
+	// }
 }
 
 func (r *Reconciler) makeOvaProviderPodSpec(url string, providerName string) v1.PodSpec {

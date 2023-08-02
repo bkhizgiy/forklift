@@ -514,6 +514,10 @@ func getResourceCapacity(capacity int64, units string) (int64, error) {
 		return 0, nil
 	}
 
+	if units == "byte" {
+		return capacity, nil
+	}
+
 	re := regexp.MustCompile("[0-9]+")
 
 	numbers := re.FindAllString(units, -1)
