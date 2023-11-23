@@ -12,14 +12,18 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
-	ovaServer           = "ova-server"
-	ovaImageVar         = "OVA_PROVIDER_SERVER_IMAGE"
-	nfsVolumeNamePrefix = "nfs-volume"
-	mountPath           = "/ova"
-	pvSize              = "1Gi"
+	ovaServer              = "ova-server"
+	ovaImageVar            = "OVA_PROVIDER_SERVER_IMAGE"
+	nfsVolumeNamePrefix    = "nfs-volume"
+	mountPath              = "/ova"
+	pvSize                 = "1Gi"
+	auditRestrictedLable   = "pod-security.kubernetes.io/audit"
+	enforceRestrictedLable = "pod-security.kubernetes.io/enforce"
+	qemuGroup              = 107
 )
 
 func (r Reconciler) CreateOVAServerDeployment(provider *api.Provider, ctx context.Context) {
@@ -143,7 +147,7 @@ func (r *Reconciler) createServerDeployment(provider *api.Provider, ctx context.
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
 				},
-				Spec: r.makeOvaProviderPodSpec(pvcName, provider.Name),
+				Spec: r.makeOvaProviderPodSpec(pvcName, provider.Name, provider.Namespace),
 			},
 		},
 	}
@@ -185,47 +189,83 @@ func (r *Reconciler) createServerService(provider *api.Provider, ctx context.Con
 	return
 }
 
-func (r *Reconciler) makeOvaProviderPodSpec(pvcName string, providerName string) core.PodSpec {
+func (r *Reconciler) makeOvaProviderPodSpec(pvcName, providerName, providerNamespace string) core.PodSpec {
 	imageName, ok := os.LookupEnv(ovaImageVar)
 	if !ok {
-		r.Log.Error(nil, "Failed to find OVA server image")
+		fmt.Println("Failed to find OVA server image")
+		return core.PodSpec{}
 	}
 
 	nfsVolumeName := fmt.Sprintf("%s-%s", nfsVolumeNamePrefix, providerName)
 	ovaContainerName := fmt.Sprintf("%s-pod-%s", ovaServer, providerName)
-	allowPrivilegeEscalation := false
 	nonRoot := true
+	user := int64(qemuGroup)
+	allowPrivilegeEscalation := false
 
-	return core.PodSpec{
-		Containers: []core.Container{
+	commonSecurityContext := &core.SecurityContext{
+		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+		Capabilities: &core.Capabilities{
+			Drop: []core.Capability{"ALL"},
+		},
+	}
+
+	container := core.Container{
+		Name:  ovaContainerName,
+		Image: imageName,
+		Ports: []core.ContainerPort{{ContainerPort: 8080, Protocol: core.ProtocolTCP}},
+		VolumeMounts: []core.VolumeMount{
 			{
-				Name:  ovaContainerName,
-				Ports: []core.ContainerPort{{ContainerPort: 8080, Protocol: core.ProtocolTCP}},
-				Image: imageName,
-				VolumeMounts: []core.VolumeMount{
-					{
-						Name:      nfsVolumeName,
-						MountPath: mountPath,
-					},
-				},
-				SecurityContext: &core.SecurityContext{
-					AllowPrivilegeEscalation: &allowPrivilegeEscalation,
-					RunAsNonRoot:             &nonRoot,
-					Capabilities: &core.Capabilities{
-						Drop: []core.Capability{"ALL"},
-					},
-				},
+				Name:      nfsVolumeName,
+				MountPath: mountPath,
 			},
 		},
-		Volumes: []core.Volume{
-			{
-				Name: nfsVolumeName,
-				VolumeSource: core.VolumeSource{
-					PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
-						ClaimName: pvcName,
-					},
-				},
+		SecurityContext: commonSecurityContext,
+	}
+
+	restricted := r.checkAndUpdateNamespaces(providerNamespace)
+	if restricted {
+		seccompProfile := &core.SeccompProfile{
+			Type: core.SeccompProfileTypeRuntimeDefault,
+		}
+		container.SecurityContext.RunAsUser = &user
+		container.SecurityContext.RunAsNonRoot = &nonRoot
+		container.SecurityContext.SeccompProfile = seccompProfile
+	}
+
+	volume := core.Volume{
+		Name: nfsVolumeName,
+		VolumeSource: core.VolumeSource{
+			PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{
+				ClaimName: pvcName,
 			},
 		},
 	}
+
+	podSpec := core.PodSpec{
+		Containers: []core.Container{container},
+		Volumes:    []core.Volume{volume},
+	}
+	return podSpec
+}
+
+func (r *Reconciler) checkAndUpdateNamespaces(namespaceName string) bool {
+	ns := core.Namespace{}
+	key := client.ObjectKey{
+		Name: namespaceName,
+	}
+	err := r.Get(context.TODO(), key, &ns)
+	if err != nil {
+		r.Log.Error(err, "Error getting namespace for restriction check")
+		return false
+	}
+
+	//common label for restricted namesapce
+	if commonLabel, exists := ns.Labels[enforceRestrictedLable]; exists && commonLabel == "restricted" {
+		if ocpLabel, exists := ns.Labels[auditRestrictedLable]; exists && ocpLabel == "restricted" {
+			return false
+		} else {
+			return true
+		}
+	}
+	return false
 }
