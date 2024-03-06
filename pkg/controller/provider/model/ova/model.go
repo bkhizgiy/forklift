@@ -73,7 +73,6 @@ type VM struct {
 	PolicyVersion         int       `sql:"d0,index(policyVersion)"`
 	UUID                  string    `sql:""`
 	Firmware              string    `sql:""`
-	CpuAffinity           []int32   `sql:""`
 	CpuHotAddEnabled      bool      `sql:""`
 	CpuHotRemoveEnabled   bool      `sql:""`
 	MemoryHotAddEnabled   bool      `sql:""`
@@ -83,7 +82,6 @@ type VM struct {
 	MemoryMB              int32     `sql:""`
 	MemoryUnits           string    `sql:""`
 	CpuUnits              string    `sql:""`
-	BalloonedMemory       int32     `sql:""`
 	IpAddress             string    `sql:""`
 	NumaNodeAffinity      []string  `sql:""`
 	StorageUsed           int64     `sql:""`

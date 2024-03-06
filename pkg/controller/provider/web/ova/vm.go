@@ -236,14 +236,12 @@ func (r *VM) With(m *model.VM) {
 	r.UUID = m.UUID
 	r.Firmware = m.Firmware
 	r.ChangeTrackingEnabled = m.ChangeTrackingEnabled
-	r.CpuAffinity = m.CpuAffinity
 	r.CpuHotAddEnabled = m.CpuHotAddEnabled
 	r.CpuHotRemoveEnabled = m.CpuHotRemoveEnabled
 	r.MemoryHotAddEnabled = m.MemoryHotAddEnabled
 	r.CpuCount = m.CpuCount
 	r.CoresPerSocket = m.CoresPerSocket
 	r.MemoryMB = m.MemoryMB
-	r.BalloonedMemory = m.BalloonedMemory
 	r.MemoryUnits = m.MemoryUnits
 	r.CpuUnits = m.CpuUnits
 	r.IpAddress = m.IpAddress

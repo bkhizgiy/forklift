@@ -129,7 +129,6 @@ type VM struct {
 	MemoryMB              int32
 	MemoryUnits           string
 	CpuUnits              string
-	BalloonedMemory       int32
 	IpAddress             string
 	NumaNodeAffinity      []string
 	StorageUsed           int64

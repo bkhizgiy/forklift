@@ -18,7 +18,6 @@ type VM struct {
 	PolicyVersion         int      `json:"PolicyVersion"`
 	UUID                  string   `json:"UUID"`
 	Firmware              string   `json:"Firmware"`
-	CpuAffinity           []int32  `json:"CpuAffinity"`
 	CpuHotAddEnabled      bool     `json:"CpuHotAddEnabled"`
 	CpuHotRemoveEnabled   bool     `json:"CpuHotRemoveEnabled"`
 	MemoryHotAddEnabled   bool     `json:"MemoryHotAddEnabled"`
@@ -26,7 +25,6 @@ type VM struct {
 	CpuCount              int32    `json:"CpuCount"`
 	CoresPerSocket        int32    `json:"CoresPerSocket"`
 	MemoryMB              int32    `json:"MemoryMB"`
-	BalloonedMemory       int32    `json:"BalloonedMemory"`
 	MemoryUnits           string   `json:"MemoryUnits"`
 	CpuUnits              string   `json:"CpuUnits"`
 	IpAddress             string   `json:"IpAddress"`
@@ -72,7 +70,6 @@ func (r *VM) ApplyTo(m *model.VM) {
 	m.PolicyVersion = r.PolicyVersion
 	m.UUID = r.UUID
 	m.Firmware = r.Firmware
-	m.CpuAffinity = r.CpuAffinity
 	m.CpuHotAddEnabled = r.CpuHotAddEnabled
 	m.CpuHotRemoveEnabled = r.CpuHotRemoveEnabled
 	m.MemoryHotAddEnabled = r.MemoryHotAddEnabled
@@ -82,7 +79,6 @@ func (r *VM) ApplyTo(m *model.VM) {
 	m.MemoryMB = r.MemoryMB
 	m.MemoryUnits = r.MemoryUnits
 	m.CpuUnits = r.CpuUnits
-	m.BalloonedMemory = r.BalloonedMemory
 	m.IpAddress = r.IpAddress
 	m.NumaNodeAffinity = r.NumaNodeAffinity
 	m.StorageUsed = r.StorageUsed
