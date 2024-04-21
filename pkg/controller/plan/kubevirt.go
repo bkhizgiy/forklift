@@ -239,7 +239,7 @@ func (r *KubeVirt) getImporterPods(pvc *core.PersistentVolumeClaim) (pods []core
 		return
 	}
 	for _, pod := range podList.Items {
-		if strings.Contains(pod.Name, fmt.Sprintf("importer-%s-%s", r.Plan.Name, pvc.Annotations[kVM])) {
+		if strings.Contains(pod.Name, fmt.Sprintf("importer-%s", pvc.Name)) {
 			pods = append(pods, pod)
 		}
 	}
@@ -1312,11 +1312,12 @@ func (r *KubeVirt) getPreference(vm *plan.VMStatus, preferenceName string) (name
 				"vm",
 				vm.String())
 		} else {
-			return
+			r.Log.Error(err, "could not fetch a local instance type preference for destination VM. trying cluster wide",
+				"vm",
+				vm.String())
 		}
+		name, kind, err = r.getVirtualMachineClusterPreference(vm, preferenceName)
 	}
-
-	name, kind, err = r.getVirtualMachineClusterPreference(vm, preferenceName)
 	return
 }
 
@@ -1355,7 +1356,7 @@ func (r *KubeVirt) getVirtualMachineClusterPreference(vm *plan.VMStatus, prefere
 func (r *KubeVirt) vmTemplate(vm *plan.VMStatus) (virtualMachine *cnv.VirtualMachine, ok bool) {
 	tmpl, err := r.findTemplate(vm)
 	if err != nil {
-		r.Log.Info("could not find template for destination VM.",
+		r.Log.Error(err, "could not find template for destination VM.",
 			"vm",
 			vm.String())
 		return

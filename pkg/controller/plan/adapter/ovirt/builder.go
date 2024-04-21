@@ -192,9 +192,7 @@ func (r *Builder) DataVolumes(vmRef ref.Ref, secret *core.Secret, configMap *cor
 		mapped := &dsMapIn[i]
 		ref := mapped.Source
 		sd := &model.StorageDomain{}
-		fErr := r.Source.Inventory.Find(sd, ref)
-		if fErr != nil {
-			err = fErr
+		if err = r.Source.Inventory.Find(sd, ref); err != nil {
 			return
 		}
 		for _, da := range vm.DiskAttachments {
@@ -352,9 +350,7 @@ func (r *Builder) mapInput(object *cnv.VirtualMachineSpec) {
 
 func (r *Builder) mapClock(vm *model.Workload, object *cnv.VirtualMachineSpec) {
 	if object.Template.Spec.Domain.Clock == nil {
-		object.Template.Spec.Domain.Clock = &cnv.Clock{
-			Timer: &cnv.Timer{},
-		}
+		object.Template.Spec.Domain.Clock = &cnv.Clock{}
 	}
 
 	timezone := cnv.ClockOffsetTimezone(vm.Timezone)
@@ -368,6 +364,7 @@ func (r *Builder) mapMemory(vm *model.Workload, object *cnv.VirtualMachineSpec) 
 			core.ResourceMemory: *reservation,
 		},
 	}
+	object.Template.Spec.Domain.Memory = &cnv.Memory{Guest: reservation}
 }
 func (r *Builder) mapCPU(vm *model.Workload, object *cnv.VirtualMachineSpec) {
 	object.Template.Spec.Domain.Machine = &cnv.Machine{Type: "q35"}
@@ -715,6 +712,7 @@ func (r *Builder) PopulatorVolumes(vmRef ref.Ref, annotations map[string]string,
 		return
 	}
 
+	var sdToStorageClass map[string]string
 	for _, diskAttachment := range workload.DiskAttachments {
 		if diskAttachment.Disk.StorageType == "lun" {
 			continue
@@ -732,7 +730,12 @@ func (r *Builder) PopulatorVolumes(vmRef ref.Ref, annotations map[string]string,
 				return
 			}
 			var pvc *core.PersistentVolumeClaim
-			storageClassName := r.Context.Map.Storage.Spec.Map[0].Destination.StorageClass
+			if sdToStorageClass == nil {
+				if sdToStorageClass, err = r.mapStorageDomainToStorageClass(); err != nil {
+					return
+				}
+			}
+			storageClassName := sdToStorageClass[diskAttachment.Disk.StorageDomain]
 			pvc, err = r.persistentVolumeClaimWithSourceRef(diskAttachment, storageClassName, populatorName, annotations, vmRef.ID)
 			if err != nil {
 				if !k8serr.IsAlreadyExists(err) {
@@ -746,6 +749,18 @@ func (r *Builder) PopulatorVolumes(vmRef ref.Ref, annotations map[string]string,
 		}
 	}
 	return
+}
+
+func (r *Builder) mapStorageDomainToStorageClass() (map[string]string, error) {
+	sdToStorageClass := make(map[string]string)
+	for _, mapped := range r.Context.Map.Storage.Spec.Map {
+		sd := &model.StorageDomain{}
+		if err := r.Source.Inventory.Find(sd, mapped.Source); err != nil {
+			return nil, liberr.Wrap(err)
+		}
+		sdToStorageClass[sd.ID] = mapped.Destination.StorageClass
+	}
+	return sdToStorageClass, nil
 }
 
 // Get the OvirtVolumePopulator CustomResource based on the disk ID.
