@@ -77,7 +77,7 @@ func main() {
 }
 
 func buildCommand() []string {
-	virtV2vArgs := []string{"virt-v2v", "-v", "-x"}
+	virtV2vArgs := []string{"virt-v2v"}
 	source := os.Getenv("V2V_source")
 
 	if !isValidSource(source) {
@@ -199,7 +199,7 @@ func executeVirtV2v(source string, args []string) (err error) {
 		fmt.Printf("Error setting up stdout pipe: %v\n", err)
 		return
 	}
-	teeOut := io.TeeReader(virtV2vStdoutPipe, os.Stdout)
+	//teeOut := io.TeeReader(virtV2vStdoutPipe, os.Stdout)
 
 	var teeErr io.Reader
 	if source == OVA {
@@ -220,7 +220,7 @@ func executeVirtV2v(source string, args []string) (err error) {
 	}
 
 	virtV2vMonitorCmd := exec.Command("/usr/local/bin/virt-v2v-monitor")
-	virtV2vMonitorCmd.Stdin = teeOut
+	virtV2vMonitorCmd.Stdin = virtV2vStdoutPipe
 	virtV2vMonitorCmd.Stdout = os.Stdout
 	virtV2vMonitorCmd.Stderr = os.Stderr
 
