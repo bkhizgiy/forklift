@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -24,17 +24,35 @@ var FINISHED_RE = regexp.MustCompile(`^\[[ .0-9]*\] Finishing off`)
 // Scanner. We could just provide bigger buffer, but it is hard to guess what
 // size is large enough. Instead we just claim that line ends when it reaches
 // buffer size.
-func LimitedScanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	advance, token, err = bufio.ScanLines(data, atEOF)
-	if token != nil || err != nil {
-		return
-	}
-	if len(data) == bufio.MaxScanTokenSize {
-		// Line is too long for the buffer. Trim it.
-		advance = len(data)
-		token = data
-	}
-	return
+func customScanLines(r io.Reader) <-chan string {
+	out := make(chan string)
+	go func() {
+		defer close(out)
+		buf := make([]byte, 64*1024)
+		var line []byte
+		for {
+			n, err := r.Read(buf)
+			if err != nil && err != io.EOF {
+				fmt.Println("Error reading input:", err)
+				return
+			}
+			if n == 0 {
+				break
+			}
+			for _, b := range buf[:n] {
+				if b == '\n' {
+					out <- string(line)
+					line = nil
+				} else {
+					line = append(line, b)
+				}
+			}
+		}
+		if len(line) > 0 {
+			out <- string(line)
+		}
+	}()
+	return out
 }
 
 func updateProgress(progressCounter *prometheus.CounterVec, disk, progress uint64) (err error) {
@@ -89,31 +107,23 @@ func main() {
 	var disks uint64 = 0
 	var progress uint64 = 0
 
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Split(LimitedScanLines)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		os.Stdout.Write(line)
-		os.Stdout.Write([]byte("\n"))
-		err := scanner.Err()
-		if err != nil {
-			klog.Fatal("Output monitoring failed! ", err)
-		}
+	scanner := customScanLines(os.Stdin)
+	for line := range scanner {
+		fmt.Println("This is the line we are scanning now:", line)
+		var err error
 
-		fmt.Println("this is the line we scanning now ", string(line))
-
-		if match := COPY_DISK_RE.FindSubmatch(line); match != nil {
+		if match := COPY_DISK_RE.FindStringSubmatch(line); match != nil {
 			diskNumber, _ = strconv.ParseUint(string(match[1]), 10, 0)
 			disks, _ = strconv.ParseUint(string(match[2]), 10, 0)
 			klog.Infof("Copying disk %d out of %d", diskNumber, disks)
 			progress = 0
 			err = updateProgress(progressCounter, diskNumber, progress)
-		} else if match := DISK_PROGRESS_RE.FindSubmatch(line); match != nil {
+		} else if match := DISK_PROGRESS_RE.FindStringSubmatch(line); match != nil {
 			klog.Info("we are here at progress ", line)
 			progress, _ = strconv.ParseUint(string(match[1]), 10, 0)
 			klog.Infof("Progress update, completed %d %%", progress)
 			err = updateProgress(progressCounter, diskNumber, progress)
-		} else if match := FINISHED_RE.Find(line); match != nil {
+		} else if match := FINISHED_RE.FindStringSubmatch(line); match != nil {
 			// Make sure we flag conversion as finished. This is
 			// just in case we miss the last progress update for some reason.
 			klog.Infof("Finished")
@@ -128,9 +138,5 @@ func main() {
 			klog.Error("Error updating progress: ", err)
 			err = nil
 		}
-	}
-	err := scanner.Err()
-	if err != nil {
-		klog.Fatal("Output monitoring failed! ", err)
 	}
 }
