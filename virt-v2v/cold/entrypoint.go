@@ -24,12 +24,15 @@ const (
 )
 
 var (
-	xmlFilePath string
-	server      *http.Server
+	yamlFilePath string
+	server       *http.Server
 )
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyz"
 const LETTERS_LENGTH = len(LETTERS)
+
+var firmware = "bios"
+var nameChanged bool
 
 func main() {
 	source := os.Getenv("V2V_source")
@@ -57,13 +60,13 @@ func main() {
 	}
 
 	var err error
-	xmlFilePath, err = getXMLFile(DIR, "xml")
+	yamlFilePath, err = getYamlFile(DIR, "yaml")
 	if err != nil {
-		fmt.Println("Error getting XML file:", err)
+		fmt.Println("Error getting YAML file:", err)
 		os.Exit(1)
 	}
 
-	http.HandleFunc("/ovf", ovfHandler)
+	http.HandleFunc("/vm", vmHandler)
 	http.HandleFunc("/shutdown", shutdownHandler)
 	server = &http.Server{Addr: ":8080"}
 
@@ -114,7 +117,14 @@ func buildCommand() []string {
 		fmt.Println("Error creating directory  ", err)
 		os.Exit(1)
 	}
-	virtV2vArgs = append(virtV2vArgs, "-o", "local", "-os", DIR)
+	virtV2vArgs = append(virtV2vArgs, "-o", "kubevirt")
+
+	if checkEnvVariablesSet("V2V_NewName") {
+		virtV2vArgs = append(virtV2vArgs, "-on", os.Getenv("V2V_NewName"))
+		nameChanged = true
+	}
+
+	virtV2vArgs = append(virtV2vArgs, "-os", DIR)
 
 	//Disks on filesystem storage.
 	if err := LinkDisks(FS, 15); err != nil {
@@ -210,13 +220,20 @@ func LinkDisks(diskKind string, num int) (err error) {
 		return
 	}
 
+	var diskSuffix string
+	if nameChanged {
+		diskSuffix = os.Getenv("V2V_newName")
+	} else {
+		diskSuffix = os.Getenv("V2V_vmName")
+	}
+
 	for _, disk := range disks {
 		diskNum, err := strconv.Atoi(disk[num:])
 		if err != nil {
 			fmt.Println("Error geting disks names ", err)
 			return err
 		}
-		diskLink := fmt.Sprintf("%s/%s-sd%s", DIR, os.Getenv("V2V_vmName"), genName(diskNum+1))
+		diskLink := fmt.Sprintf("%s/%s-sd%s", DIR, diskSuffix, genName(diskNum+1))
 		diskImgPath := disk
 		if diskKind == FS {
 			diskImgPath = fmt.Sprintf("%s/disk.img", disk)
@@ -263,7 +280,7 @@ func executeVirtV2v(args []string) error {
 	return nil
 }
 
-func getXMLFile(dir, fileExtension string) (string, error) {
+func getYamlFile(dir, fileExtension string) (string, error) {
 	files, err := filepath.Glob(filepath.Join(dir, "*."+fileExtension))
 	if err != nil {
 		return "", err
@@ -271,32 +288,31 @@ func getXMLFile(dir, fileExtension string) (string, error) {
 	if len(files) > 0 {
 		return files[0], nil
 	}
-	return "", fmt.Errorf("XML file was not found.")
+	return "", fmt.Errorf("yaml file was not found")
 }
 
-func ovfHandler(w http.ResponseWriter, r *http.Request) {
-	if xmlFilePath == "" {
-		fmt.Println("Error: XML file path is empty.")
-		http.Error(w, "XML file path is empty", http.StatusInternalServerError)
+func vmHandler(w http.ResponseWriter, r *http.Request) {
+	if yamlFilePath == "" {
+		fmt.Println("Error: YAML file path is empty.")
+		http.Error(w, "YAML file path is empty", http.StatusInternalServerError)
 		return
 	}
 
-	xmlData, err := os.ReadFile(xmlFilePath)
+	yamlData, err := os.ReadFile(yamlFilePath)
 	if err != nil {
-		fmt.Printf("Error reading XML file: %v\n", err)
-		http.Error(w, "Error reading XML file", http.StatusInternalServerError)
+		fmt.Printf("Error reading yaml file: %v\n", err)
+		http.Error(w, "Error reading Yaml file", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/xml")
-	_, err = w.Write(xmlData)
+	w.Header().Set("Content-Type", "text/yaml")
+	_, err = w.Write(yamlData)
 	if err == nil {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		fmt.Printf("Error writing response: %v\n", err)
 		http.Error(w, "Error writing response", http.StatusInternalServerError)
 	}
-
 }
 
 func shutdownHandler(w http.ResponseWriter, r *http.Request) {
